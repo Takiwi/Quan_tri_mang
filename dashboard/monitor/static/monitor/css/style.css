@@ -1,0 +1,33 @@
+body {
+  background-color: #f5f7fa;
+}
+
+.navbar .nav-link.active {
+  color: #fff;
+  font-weight: 600;
+}
+
+.card {
+  border-radius: 0.75rem;
+}
+
+.card-header,
+.card-footer {
+  border-color: #edf0f4;
+}
+
+.chart-container {
+  position: relative;
+  min-height: 260px;
+}
+
+table th {
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  main.container-fluid {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+}

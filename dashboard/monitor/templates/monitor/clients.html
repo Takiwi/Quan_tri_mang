@@ -1,0 +1,69 @@
+{% extends "monitor/base.html" %}
+{% load monitor_tags %}
+
+{% block title %}Danh sách client{% endblock %}
+{% block nav_clients %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="mb-4">
+    <h1 class="h3 mb-1">Danh sách client</h1>
+    <p class="text-secondary mb-0">Tìm kiếm theo MAC, địa chỉ IP hoặc hostname và lọc theo trạng thái.</p>
+  </div>
+
+  <form method="get" class="card card-body border-0 shadow-sm mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md">
+        <label for="client-query" class="form-label">Tìm kiếm</label>
+        <input id="client-query" class="form-control" type="search" name="q" value="{{ query }}" placeholder="MAC, IP hoặc hostname">
+      </div>
+      <div class="col-12 col-md-3">
+        <label for="client-state" class="form-label">Trạng thái</label>
+        <select id="client-state" class="form-select" name="state">
+          <option value="">Tất cả trạng thái</option>
+          <option value="connected" {% if state_filter == "connected" %}selected{% endif %}>Đang kết nối</option>
+          <option value="stale" {% if state_filter == "stale" %}selected{% endif %}>Không ổn định</option>
+          <option value="disconnected" {% if state_filter == "disconnected" %}selected{% endif %}>Mất kết nối</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-auto d-flex gap-2">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> Lọc</button>
+        <a class="btn btn-outline-secondary" href="{% url 'monitor:clients' %}">Xóa lọc</a>
+      </div>
+    </div>
+  </form>
+
+  <div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">MAC address</th>
+            <th scope="col">Địa chỉ IP</th>
+            <th scope="col">Hostname</th>
+            <th scope="col">SSID</th>
+            <th scope="col">Namespace</th>
+            <th scope="col">Trạng thái</th>
+            <th scope="col">Cập nhật lần cuối</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for client in clients %}
+          <tr>
+            <td class="text-nowrap"><a href="{% url 'monitor:client_detail' client.mac %}">{{ client.mac }}</a></td>
+            <td>{{ client.ip|default:"—" }}</td>
+            <td>{{ client.hostname|default:"—" }}</td>
+            <td>{{ client.ssid|default:"—" }}</td>
+            <td>{{ client.namespace|default:"—" }}</td>
+            <td>{{ client.state|state_badge }}</td>
+            <td class="text-nowrap" title="{{ client.last_seen }}">{{ client.last_seen|time_ago }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="text-center text-secondary py-5">Không tìm thấy client phù hợp.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

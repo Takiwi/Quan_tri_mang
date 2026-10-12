@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from django import template
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html
 
 register = template.Library()
 
@@ -12,26 +12,24 @@ register = template.Library()
 def state_badge(state):
     """Trả về badge Bootstrap theo trạng thái client."""
     badges = {
-        "connected": '<span class="badge bg-success">Kết nối</span>',
-        "stale": '<span class="badge bg-warning text-dark">Không ổn định</span>',
-        "disconnected": '<span class="badge bg-danger">Mất kết nối</span>',
+        "connected": ("success", "Kết nối"),
+        "stale": ("warning text-dark", "Không ổn định"),
+        "disconnected": ("danger", "Mất kết nối"),
     }
-    return mark_safe(
-        badges.get(state, f'<span class="badge bg-secondary">{state}</span>')
-    )
+    style, label = badges.get(state, ("secondary", state))
+    return format_html('<span class="badge bg-{}">{}</span>', style, label)
 
 
 @register.filter
 def severity_badge(severity):
     """Trả về badge Bootstrap theo mức độ nghiêm trọng."""
     badges = {
-        "info": '<span class="badge bg-info text-dark">Thông tin</span>',
-        "warning": '<span class="badge bg-warning text-dark">Cảnh báo</span>',
-        "critical": '<span class="badge bg-danger">Nghiêm trọng</span>',
+        "info": ("info text-dark", "Thông tin"),
+        "warning": ("warning text-dark", "Cảnh báo"),
+        "critical": ("danger", "Nghiêm trọng"),
     }
-    return mark_safe(
-        badges.get(severity, f'<span class="badge bg-secondary">{severity}</span>')
-    )
+    style, label = badges.get(severity, ("secondary", severity))
+    return format_html('<span class="badge bg-{}">{}</span>', style, label)
 
 
 @register.filter

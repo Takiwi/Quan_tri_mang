@@ -1,0 +1,55 @@
+{% extends "monitor/base.html" %}
+{% load monitor_tags %}
+
+{% block title %}Chi tiết client{% endblock %}
+{% block nav_clients %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <div>
+      <a class="small text-decoration-none" href="{% url 'monitor:clients' %}"><i class="bi bi-arrow-left"></i> Danh sách client</a>
+      <h1 class="h3 mt-2 mb-0">{{ client.hostname|default:client.mac }}</h1>
+    </div>
+    <div>{{ client.state|state_badge }}</div>
+  </div>
+
+  <section class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white fw-semibold">Thông tin thiết bị</div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-3 col-lg-2">MAC address</dt><dd class="col-sm-9 col-lg-4">{{ client.mac }}</dd>
+        <dt class="col-sm-3 col-lg-2">Địa chỉ IP</dt><dd class="col-sm-9 col-lg-4">{{ client.ip|default:"—" }}</dd>
+        <dt class="col-sm-3 col-lg-2">Hostname</dt><dd class="col-sm-9 col-lg-4">{{ client.hostname|default:"—" }}</dd>
+        <dt class="col-sm-3 col-lg-2">SSID</dt><dd class="col-sm-9 col-lg-4">{{ client.ssid|default:"—" }}</dd>
+        <dt class="col-sm-3 col-lg-2">Namespace</dt><dd class="col-sm-9 col-lg-4">{{ client.namespace|default:"—" }}</dd>
+        <dt class="col-sm-3 col-lg-2">Phát hiện lần đầu</dt><dd class="col-sm-9 col-lg-4">{{ client.first_seen|default:"—" }}</dd>
+        <dt class="col-sm-3 col-lg-2">Cập nhật lần cuối</dt><dd class="col-sm-9 col-lg-4">{{ client.last_seen|default:"—" }}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card border-0 shadow-sm">
+    <div class="card-header bg-white fw-semibold">Sự kiện của client</div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th scope="col">Thời gian</th><th scope="col">Loại sự kiện</th><th scope="col">Chi tiết</th><th scope="col">Mức độ</th></tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <td class="text-nowrap" title="{{ event.timestamp }}">{{ event.timestamp|time_ago }}</td>
+            <td>{{ event.event_type|event_type_label }}</td>
+            <td>{{ event.message }}</td>
+            <td>{{ event.severity|severity_badge }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="text-center text-secondary py-4">Client này chưa có sự kiện nào.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

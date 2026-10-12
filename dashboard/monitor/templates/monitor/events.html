@@ -1,0 +1,93 @@
+{% extends "monitor/base.html" %}
+{% load monitor_tags %}
+
+{% block title %}Lịch sử sự kiện{% endblock %}
+{% block nav_events %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="mb-4">
+    <h1 class="h3 mb-1">Lịch sử sự kiện</h1>
+    <p class="text-secondary mb-0">Theo dõi các lần kết nối, mất kết nối và cảnh báo của hệ thống.</p>
+  </div>
+
+  <form method="get" class="card card-body border-0 shadow-sm mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-4">
+        <label for="event-type" class="form-label">Loại sự kiện</label>
+        <select id="event-type" class="form-select" name="type">
+          <option value="">Tất cả loại sự kiện</option>
+          <option value="client_connected" {% if event_type == "client_connected" %}selected{% endif %}>Kết nối mới</option>
+          <option value="client_disconnected" {% if event_type == "client_disconnected" %}selected{% endif %}>Mất kết nối</option>
+          <option value="client_returned" {% if event_type == "client_returned" %}selected{% endif %}>Client quay lại</option>
+          <option value="threshold_exceeded" {% if event_type == "threshold_exceeded" %}selected{% endif %}>Vượt ngưỡng</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-3">
+        <label for="event-severity" class="form-label">Mức độ</label>
+        <select id="event-severity" class="form-select" name="severity">
+          <option value="">Tất cả mức độ</option>
+          <option value="info" {% if severity == "info" %}selected{% endif %}>Thông tin</option>
+          <option value="warning" {% if severity == "warning" %}selected{% endif %}>Cảnh báo</option>
+          <option value="critical" {% if severity == "critical" %}selected{% endif %}>Nghiêm trọng</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-auto d-flex gap-2">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-funnel"></i> Lọc</button>
+        <a class="btn btn-outline-secondary" href="{% url 'monitor:events' %}">Xóa lọc</a>
+      </div>
+    </div>
+  </form>
+
+  <section class="card border-0 shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">Thời gian</th>
+            <th scope="col">Loại sự kiện</th>
+            <th scope="col">Client</th>
+            <th scope="col">Chi tiết</th>
+            <th scope="col">Mức độ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in page_obj %}
+          <tr>
+            <td class="text-nowrap" title="{{ event.timestamp }}">{{ event.timestamp|time_ago }}</td>
+            <td>{{ event.event_type|event_type_label }}</td>
+            <td>
+              {% if event.mac %}
+              <a href="{% url 'monitor:client_detail' event.mac %}">{{ event.mac }}</a>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ event.message }}</td>
+            <td>{{ event.severity|severity_badge }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="text-center text-secondary py-5">Không có sự kiện phù hợp.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav class="card-footer bg-white d-flex justify-content-between align-items-center" aria-label="Phân trang sự kiện">
+      <span class="small text-secondary">Trang {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+      <div class="btn-group">
+        {% if page_obj.has_previous %}
+        <a class="btn btn-outline-secondary btn-sm" href="?page={{ page_obj.previous_page_number }}&amp;type={{ event_type|urlencode }}&amp;severity={{ severity|urlencode }}">Trước</a>
+        {% else %}
+        <span class="btn btn-outline-secondary btn-sm disabled" aria-disabled="true">Trước</span>
+        {% endif %}
+        {% if page_obj.has_next %}
+        <a class="btn btn-outline-secondary btn-sm" href="?page={{ page_obj.next_page_number }}&amp;type={{ event_type|urlencode }}&amp;severity={{ severity|urlencode }}">Sau</a>
+        {% else %}
+        <span class="btn btn-outline-secondary btn-sm disabled" aria-disabled="true">Sau</span>
+        {% endif %}
+      </div>
+    </nav>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

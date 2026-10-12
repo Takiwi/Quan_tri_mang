@@ -99,10 +99,8 @@ python manage.py runserver
 Truy cập <http://127.0.0.1:8000/>. Có thể chạy kiểm tra cấu hình Django trước
 bằng `python manage.py check` trong thư mục `dashboard`.
 
-**Lưu ý:** Các view HTML hiện tham chiếu đến `dashboard.html`, `clients.html`,
-`client_detail.html` và `events.html`, nhưng trong mã nguồn hiện chỉ có
-`base.html`. Vì vậy các trang giao diện này chưa thể render cho đến khi những
-template còn thiếu được bổ sung. Các API JSON đã được khai báo tại:
+Dashboard có trang tổng quan, danh sách và chi tiết client, cùng lịch sử sự
+kiện với bộ lọc và phân trang. Các API JSON cũng được cung cấp tại:
 
 - `/api/clients/`
 - `/api/events/` (có thể giới hạn số bản ghi bằng `?limit=50`)
@@ -144,4 +142,3 @@ python -m app.main --sudo
 - `wifimon/`: thu thập dữ liệu, phát hiện sự kiện, lưu trữ và giao diện terminal.
 - `dashboard/`: ứng dụng Django và API đọc dữ liệu giám sát.
 - `app/`: tiện ích chẩn đoán router và namespace qua SSH.
-

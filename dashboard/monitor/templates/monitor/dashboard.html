@@ -1,0 +1,103 @@
+{% extends "monitor/base.html" %}
+{% load monitor_tags %}
+
+{% block title %}Tổng quan{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <div>
+      <h1 class="h3 mb-1">Tổng quan mạng</h1>
+      <p class="text-secondary mb-0">Tình trạng client Wi-Fi và các sự kiện gần đây.</p>
+    </div>
+    <div class="text-secondary small">
+      Lần quét cuối: <strong id="last-scan">{{ last_scan }}</strong>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="text-secondary">Tổng client</div>
+          <div class="display-6 fw-semibold" data-stat="total">{{ total }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="text-secondary">Đang kết nối</div>
+          <div class="display-6 fw-semibold text-success" data-stat="connected">{{ connected }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="text-secondary">Không ổn định</div>
+          <div class="display-6 fw-semibold text-warning" data-stat="stale">{{ stale }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="text-secondary">Mất kết nối</div>
+          <div class="display-6 fw-semibold text-danger" data-stat="disconnected">{{ disconnected }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-xl-5">
+      <section class="card h-100 border-0 shadow-sm">
+        <div class="card-header bg-white fw-semibold">Số lượng client qua các lần quét</div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="scan-history-chart" aria-label="Biểu đồ số lượng client theo lần quét"></canvas>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="col-12 col-xl-7">
+      <section class="card h-100 border-0 shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">Sự kiện gần đây</span>
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'monitor:events' %}">Xem tất cả</a>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Thời gian</th>
+                <th scope="col">Sự kiện</th>
+                <th scope="col">Client</th>
+                <th scope="col">Mức độ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in recent_events %}
+              <tr>
+                <td class="text-nowrap" title="{{ event.timestamp }}">{{ event.timestamp|time_ago }}</td>
+                <td>{{ event.event_type|event_type_label }}</td>
+                <td>
+                  {% if event.mac %}
+                  <a href="{% url 'monitor:client_detail' event.mac %}">{{ event.mac }}</a>
+                  {% else %}—{% endif %}
+                </td>
+                <td>{{ event.severity|severity_badge }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="4" class="text-center text-secondary py-4">Chưa có sự kiện nào.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}
