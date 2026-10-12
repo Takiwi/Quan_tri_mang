@@ -1,0 +1,11 @@
+# Cấu hình giám sát Wi-Fi
+scan_interval: 10          # Chu kỳ quét (giây)
+client_threshold: 5        # Ngưỡng cảnh báo số client trên AP
+lease_file: /var/lib/misc/dnsmasq.leases
+bridge: br-lab
+client_prefix: client      # prefix of network namespace names
+
+# Ánh xạ interface -> SSID
+ssid_map:
+  br-lab: "LAB-WIFI"
+  wlan0: "HOME-WIFI"

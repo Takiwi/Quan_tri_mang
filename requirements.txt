@@ -1,2 +1,5 @@
 paramiko
 python-dotenv
+PyYAML
+rich
+Django

@@ -1,0 +1,111 @@
+{% load static %} {% load monitor_tags %}
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}WifiMon{% endblock %} - Giám sát Wi-Fi</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <!-- Bootstrap Icons -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
+      rel="stylesheet"
+    />
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom CSS -->
+    <link href="{% static 'monitor/css/style.css' %}" rel="stylesheet" />
+  </head>
+  <body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+      <div class="container-fluid">
+        <a class="navbar-brand fw-bold" href="{% url 'monitor:dashboard' %}">
+          <i class="bi bi-wifi"></i> WifiMon
+        </a>
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#navMain"
+        >
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navMain">
+          <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+              <a
+                class="nav-link {% block nav_dashboard %}{% endblock %}"
+                href="{% url 'monitor:dashboard' %}"
+              >
+                <i class="bi bi-speedometer2"></i> Dashboard
+              </a>
+            </li>
+            <li class="nav-item">
+              <a
+                class="nav-link {% block nav_clients %}{% endblock %}"
+                href="{% url 'monitor:clients' %}"
+              >
+                <i class="bi bi-people"></i> Client
+              </a>
+            </li>
+            <li class="nav-item">
+              <a
+                class="nav-link {% block nav_events %}{% endblock %}"
+                href="{% url 'monitor:events' %}"
+              >
+                <i class="bi bi-bell"></i> Sự kiện
+              </a>
+            </li>
+          </ul>
+          <span class="navbar-text text-light" id="auto-refresh-status">
+            <i class="bi bi-arrow-repeat spin"></i> Tự động cập nhật
+          </span>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Flash messages -->
+    {% if messages %}
+    <div class="container-fluid mt-2">
+      {% for message in messages %}
+      <div
+        class="alert alert-{{ message.tags }} alert-dismissible fade show"
+        role="alert"
+      >
+        {{ message }}
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="alert"
+        ></button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Main Content -->
+    <main class="container-fluid py-3">{% block content %}{% endblock %}</main>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-light py-2 mt-4">
+      <div class="container-fluid text-center">
+        <small
+          >WifiMon &copy; 2024 - Hệ thống giám sát client Wi-Fi | Quản trị
+          Mạng</small
+        >
+      </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="{% static 'monitor/js/dashboard.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>
