@@ -25,7 +25,9 @@ def main():
 
     remote = check_state.Remote()
     try:
-        check_state.check_status(remote, use_sudo=use_sudo)
+        state = check_state.check_status(remote, use_sudo=use_sudo)
+        if not state["router_ready"]:
+            raise SystemExit(1)
     finally:
         remote.close()
 

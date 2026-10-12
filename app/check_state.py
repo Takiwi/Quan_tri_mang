@@ -21,15 +21,15 @@ def read_bool_env(name: str, default: bool = False) -> bool:
 
 class Remote:
     def __init__(self):
-        host = os.getenv("HOST", "").strip()
+        host = os.getenv("SSH_HOST", "").strip()
         user = os.getenv("SSH_USER", "").strip()
         raw_port = os.getenv("PORT", "22").strip()
-        password = os.getenv("PASSWORD") or None
+        password = os.getenv("SSH_PASSWORD") or None
         key = os.getenv("KEY") or None
 
         missing = [
             name
-            for name, value in (("HOST", host), ("SSH_USER", user))
+            for name, value in (("SSH_HOST", host), ("SSH_USER", user))
             if not value
         ]
         if missing:
@@ -118,19 +118,15 @@ def check_dnsmasq(r: Remote):
 
 
 def check_lease_dhcp(r: Remote):
-    code, out, _ = r.run(
-        f"wc -l < {shlex.quote(LEASE_FILE)} 2>/dev/null"
-    )
+    code, out, _ = r.run(f"wc -l < {shlex.quote(LEASE_FILE)} 2>/dev/null")
     return {"dhcp_lease_count": int(out) if code == 0 and out.isdigit() else None}
 
 
-def check_status(r: Remote, use_sudo: bool = False):
+def check_status(r: Remote, use_sudo: bool = False) -> dict:
     bridge = os.getenv("BRIDGE", "").strip()
     prefix = os.getenv("PREFIX", "").strip()
     missing = [
-        name
-        for name, value in (("BRIDGE", bridge), ("PREFIX", prefix))
-        if not value
+        name for name, value in (("BRIDGE", bridge), ("PREFIX", prefix)) if not value
     ]
     if missing:
         raise ValueError(f"Thiếu biến môi trường: {', '.join(missing)}")
@@ -161,6 +157,7 @@ def check_status(r: Remote, use_sudo: bool = False):
     )
 
     print_report(state, bridge)
+    return state
 
 
 def print_report(state, bridge: str):
