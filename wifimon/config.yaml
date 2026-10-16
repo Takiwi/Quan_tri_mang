@@ -1,11 +1,12 @@
 # Cấu hình giám sát Wi-Fi
 scan_interval: 10          # Chu kỳ quét (giây)
 client_threshold: 5        # Ngưỡng cảnh báo số client trên AP
+disconnect_missed_scans: 2 # Số lần quét AP liên tiếp vắng client mới đánh dấu mất kết nối
 lease_file: /var/lib/misc/dnsmasq.leases
 bridge: br-lab
+ap_interface: wlan0        # Interface AP hostapd; dùng iw dev <interface> station dump
 client_prefix: client      # prefix of network namespace names
 
-# Ánh xạ interface -> SSID
+# Ánh xạ bridge -> SSID hiển thị
 ssid_map:
-  br-lab: "LAB-WIFI"
-  wlan0: "HOME-WIFI"
+  br-lab: "WifiMon-Lab"

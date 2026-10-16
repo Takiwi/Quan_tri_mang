@@ -62,7 +62,7 @@ class Dashboard:
 
         table.add_row("Tổng client:", str(len(clients)))
         table.add_row("Đang kết nối:", Text(str(connected), style="bold green"))
-        table.add_row("Stale:", Text(str(stale), style="bold yellow"))
+        table.add_row("Đang xác minh mất:", Text(str(stale), style="bold yellow"))
         table.add_row("Mất kết nối:", Text(str(disconnected), style="bold red"))
         table.add_row("Lần quét cuối:", last_scan)
 
@@ -90,7 +90,8 @@ class Dashboard:
         table.add_column("SSID", min_width=10)
         table.add_column("Namespace", min_width=10)
         table.add_column("Trạng thái", min_width=12)
-        table.add_column("Kết nối lần đầu", min_width=20)
+        table.add_column("Kết nối AP từ", min_width=20)
+        table.add_column("Phát hiện lần đầu", min_width=20)
         table.add_column("Cập nhật lần cuối", min_width=20)
 
         for idx, client in enumerate(clients, start=1):
@@ -106,12 +107,13 @@ class Dashboard:
                 client.get("ssid", "") or "-",
                 client.get("namespace", "") or "-",
                 state_text,
+                client.get("connected_since", "") or "-",
                 client.get("first_seen", ""),
                 client.get("last_seen", ""),
             )
 
         if not clients:
-            table.add_row("-", "Chưa có client nào", "", "", "", "", "", "", "")
+            table.add_row("-", "Chưa có client nào", "", "", "", "", "", "", "", "")
 
         return Panel(table, title="👥 Danh sách Client", border_style="blue")
 

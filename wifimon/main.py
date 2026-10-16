@@ -4,7 +4,7 @@ main.py - Vòng lặp quét chính của hệ thống giám sát Wi-Fi
 Quy trình:
   1. Tải cấu hình từ config.yaml và .env
   2. Thiết lập kết nối SSH tới Ubuntu Server
-  3. Khởi tạo SQLite storage
+  3. Khởi tạo PostgreSQL storage
   4. Bắt đầu vòng lặp quét:
      a. Thu thập client (collector)
      b. Phát hiện sự kiện (detector)
@@ -16,16 +16,21 @@ Quy trình:
 from __future__ import annotations
 
 import sys
+import argparse
 import time
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
 from wifimon.alerts import AlertManager
-from wifimon.cli import Dashboard
 from wifimon.collector import RemoteCollector, create_ssh_connection
 from wifimon.config import load_config
 from wifimon.detector import Detector
 from wifimon.storage import Storage
+
+if TYPE_CHECKING:
+    from wifimon.cli import Dashboard
+    from rich.live import Live as RichLive
 
 try:
     from rich.live import Live
@@ -35,6 +40,13 @@ except ImportError:
 
 def main() -> None:
     """Điểm vào chính - chạy vòng lặp giám sát."""
+    parser = argparse.ArgumentParser(description="WifiMon Wi-Fi client monitor")
+    parser.add_argument(
+        "--cli",
+        action="store_true",
+        help="Hiển thị dashboard Rich trong terminal thay cho dashboard Django.",
+    )
+    args = parser.parse_args()
 
     # Đảm bảo console hỗ trợ UTF-8
     if hasattr(sys.stdout, "reconfigure"):
@@ -62,16 +74,22 @@ def main() -> None:
     print("✅ Kết nối SSH thành công!")
 
     # Khởi tạo các thành phần
-    storage = Storage(db_path="wifimon.db")
+    storage = Storage()
     collector = RemoteCollector(ssh_client, config)
     detector = Detector(storage, config)
     alert_mgr = AlertManager()
-    dashboard = Dashboard(storage)
+    if args.cli:
+        from wifimon.cli import Dashboard
 
-    print("📡 Bắt đầu giám sát... (Ctrl+C để dừng)\n")
+        dashboard = Dashboard(storage)
+    else:
+        dashboard = None
+
+    mode = "CLI dự phòng" if args.cli else "dashboard Django"
+    print(f"📡 Bắt đầu giám sát ({mode})... (Ctrl+C để dừng)\n")
 
     try:
-        if Live is not None:
+        if args.cli and Live is not None and dashboard is not None:
             # Chế độ dashboard real-time với Rich Live
             with Live(
                 dashboard.render_all(),
@@ -82,9 +100,11 @@ def main() -> None:
                     _scan_cycle(collector, detector, alert_mgr, dashboard, live)
                     time.sleep(scan_interval)
         else:
-            # Fallback: in text đơn giản
+            # Default headless mode leaves the web UI as the primary dashboard.
             while True:
-                _scan_cycle_simple(collector, detector, alert_mgr, storage)
+                _scan_cycle_simple(
+                    collector, detector, alert_mgr, storage, dashboard
+                )
                 time.sleep(scan_interval)
 
     except KeyboardInterrupt:
@@ -99,16 +119,24 @@ def _scan_cycle(
     collector: RemoteCollector,
     detector: Detector,
     alert_mgr: AlertManager,
-    dashboard: Dashboard,
-    live: "Live",
+    dashboard: "Dashboard",
+    live: "RichLive",
 ) -> None:
     """Thực hiện một chu kỳ quét với Rich Live dashboard."""
     try:
         # Thu thập client
-        clients = collector.collect_all()
+        result = collector.collect_all()
+        for error in result.errors:
+            alert_mgr.console.print(f"[yellow]⚠ Thu thập chưa đầy đủ: {error}[/yellow]")
+        if not result.station_scan_ok:
+            alert_mgr.console.print(
+                "[yellow]Bỏ qua lượt quét: không xác nhận được danh sách station từ AP; "
+                "giữ nguyên trạng thái đã lưu.[/yellow]"
+            )
+            return
 
         # Phát hiện sự kiện
-        events = detector.detect(clients)
+        events = detector.detect(result.clients)
 
         # Gửi cảnh báo cho các sự kiện
         for event in events:
@@ -127,16 +155,30 @@ def _scan_cycle_simple(
     detector: Detector,
     alert_mgr: AlertManager,
     storage: Storage,
+    dashboard: "Dashboard | None" = None,
 ) -> None:
     """Thực hiện một chu kỳ quét (fallback không dùng Rich Live)."""
     try:
-        clients = collector.collect_all()
-        events = detector.detect(clients)
+        result = collector.collect_all()
+        for error in result.errors:
+            print(f"⚠ Thu thập chưa đầy đủ: {error}")
+        if not result.station_scan_ok:
+            print(
+                "[Bỏ qua] Không xác nhận được danh sách station từ AP; "
+                "giữ nguyên trạng thái đã lưu."
+            )
+            return
+
+        events = detector.detect(result.clients)
 
         for event in events:
             alert_mgr.send(event)
 
-        # In tóm tắt
+        if dashboard is not None:
+            dashboard.console.print(dashboard.render_all())
+            return
+
+        # Log summary for the default headless web-dashboard mode.
         all_clients = storage.get_all_clients()
         connected = sum(1 for c in all_clients if c["state"] == "connected")
         print(
@@ -151,4 +193,3 @@ def _scan_cycle_simple(
 
 if __name__ == "__main__":
     main()
-

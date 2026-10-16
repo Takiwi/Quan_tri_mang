@@ -15,7 +15,7 @@ import os
 import re
 import shlex
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import paramiko
 
@@ -30,9 +30,19 @@ class ClientInfo:
     ssid: str = ""  # SSID ánh xạ từ interface
     namespace: str = ""  # Network namespace (nếu có)
     first_seen: str = ""  # ISO datetime lần đầu phát hiện
+    connected_since: str = ""  # Thời điểm association ước tính từ AP
     last_seen: str = ""  # ISO datetime lần quét hiện tại
     state: str = "connected"  # 'connected' | 'stale' | 'disconnected'
-    source: str = ""  # Nguồn phát hiện: 'lease', 'arp', 'namespace', 'fdb'
+    source: str = ""  # Nguồn xác nhận trạng thái
+
+
+@dataclass
+class CollectionResult:
+    """Snapshot client và trạng thái tin cậy của lần đọc danh sách AP."""
+
+    clients: list[ClientInfo]
+    station_scan_ok: bool
+    errors: list[str] = field(default_factory=list)
 
 
 def _normalize_mac(mac: str) -> str:
@@ -48,6 +58,36 @@ def _normalize_mac(mac: str) -> str:
 def _now_iso() -> str:
     """Trả về thời gian hiện tại dạng ISO 8601."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _parse_station_dump(output: str, now: datetime | None = None) -> list[dict]:
+    """Parse ``iw station dump``; connected_since là thời điểm suy ra gần đúng."""
+    current_time = now or datetime.now(timezone.utc)
+    stations: list[dict] = []
+    current_station: dict | None = None
+
+    for line in output.splitlines():
+        station_match = re.match(r"\s*Station\s+([0-9a-fA-F:]{17})\b", line)
+        if station_match:
+            if current_station:
+                stations.append(current_station)
+            current_station = {
+                "mac": _normalize_mac(station_match.group(1)),
+                "connected_since": "",
+            }
+            continue
+
+        if current_station:
+            time_match = re.match(r"\s*connected time:\s+(\d+)\s+seconds\b", line)
+            if time_match:
+                connected_time = int(time_match.group(1))
+                current_station["connected_since"] = (
+                    current_time - timedelta(seconds=connected_time)
+                ).isoformat(timespec="seconds")
+
+    if current_station:
+        stations.append(current_station)
+    return stations
 
 
 def create_ssh_connection(config: dict | None = None) -> paramiko.SSHClient:
@@ -75,7 +115,8 @@ def create_ssh_connection(config: dict | None = None) -> paramiko.SSHClient:
         raise ValueError("Thiếu SSH_HOST hoặc SSH_USER trong cấu hình.")
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
     client.connect(
         hostname=host,
@@ -93,7 +134,8 @@ class RemoteCollector:
     """
     Thu thập thông tin client mạng từ Ubuntu Server qua SSH.
 
-    Sử dụng nhiều nguồn: DHCP lease, ARP, namespace, bridge FDB.
+    Xác nhận association qua AP station list; dùng DHCP, ARP, namespace và
+    bridge FDB để bổ sung thông tin client.
     """
 
     def __init__(self, ssh_client: paramiko.SSHClient, config: dict) -> None:
@@ -104,8 +146,10 @@ class RemoteCollector:
         )
         self.lease_file = config.get("lease_file", "/var/lib/misc/dnsmasq.leases")
         self.bridge = config.get("bridge", "br-lab")
+        self.ap_interface = config.get("ap_interface", "wlan0")
         self.prefix = config.get("client_prefix", "client")
         self.ssid_map: dict[str, str] = config.get("ssid_map", {})
+        self.errors: list[str] = []
 
     # ------------------------------------------------------------------ #
     #  Thực thi lệnh trên remote                                         #
@@ -117,21 +161,33 @@ class RemoteCollector:
         """
         Chạy lệnh trên remote qua SSH.
 
-        Nếu sudo=True, dùng pattern ``echo <password> | sudo -S <cmd>``
-        để truyền mật khẩu root.
+        Nếu cần mật khẩu sudo, gửi qua stdin thay vì đưa vào command string.
         """
         if sudo and self.password:
-            full_cmd = f"echo {shlex.quote(self.password)} | sudo -S {cmd}"
+            full_cmd = f"sudo -S -p '' -- sh -c {shlex.quote(cmd)}"
         elif sudo:
             full_cmd = f"sudo -n {cmd}"
         else:
             full_cmd = cmd
 
-        _, stdout, stderr = self.ssh.exec_command(full_cmd, timeout=timeout)
+        stdin, stdout, stderr = self.ssh.exec_command(full_cmd, timeout=timeout)
+        if sudo and self.password:
+            stdin.write(f"{self.password}\n")
+            stdin.flush()
+            stdin.channel.shutdown_write()
         out = stdout.read().decode(errors="replace").strip()
         err = stderr.read().decode(errors="replace").strip()
         code = stdout.channel.recv_exit_status()
         return code, out, err
+
+    def _run_collection_command(
+        self, source: str, cmd: str, sudo: bool = False
+    ) -> tuple[bool, str]:
+        code, output, error = self.run_cmd(cmd, sudo=sudo)
+        if code != 0:
+            self.errors.append(f"{source}: {error or f'lệnh thoát mã {code}'}")
+            return False, ""
+        return True, output
 
     # ------------------------------------------------------------------ #
     #  Thu thập từ DHCP Lease                                             #
@@ -143,8 +199,10 @@ class RemoteCollector:
 
         Mỗi dòng có dạng: ``<timestamp> <mac> <ip> <hostname> <client-id>``
         """
-        code, out, _ = self.run_cmd(f"cat {shlex.quote(self.lease_file)}")
-        if code != 0 or not out:
+        succeeded, out = self._run_collection_command(
+            "DHCP lease", f"cat {shlex.quote(self.lease_file)}"
+        )
+        if not succeeded or not out:
             return []
 
         results: list[dict] = []
@@ -183,8 +241,10 @@ class RemoteCollector:
 
         Trạng thái ARP: REACHABLE, STALE, DELAY, FAILED, ...
         """
-        code, out, _ = self.run_cmd("ip neigh show")
-        if code != 0 or not out:
+        succeeded, out = self._run_collection_command(
+            "Neighbor table", "ip neigh show"
+        )
+        if not succeeded or not out:
             return []
 
         results: list[dict] = []
@@ -234,8 +294,10 @@ class RemoteCollector:
         Liệt kê namespace bắt đầu bằng prefix, rồi lấy thông tin IP
         của mỗi namespace bằng ``ip netns exec <ns> ip -br addr``.
         """
-        code, out, _ = self.run_cmd("ip netns list")
-        if code != 0 or not out:
+        succeeded, out = self._run_collection_command(
+            "Network namespaces", "ip netns list"
+        )
+        if not succeeded or not out:
             return []
 
         namespaces = [
@@ -246,10 +308,12 @@ class RemoteCollector:
 
         results: list[dict] = []
         for ns in namespaces:
-            ns_code, ns_out, _ = self.run_cmd(
-                f"ip netns exec {shlex.quote(ns)} ip -br addr", sudo=True
+            namespace_ok, ns_out = self._run_collection_command(
+                f"Namespace {ns}",
+                f"ip netns exec {shlex.quote(ns)} ip -br addr",
+                sudo=True,
             )
-            if ns_code != 0 or not ns_out:
+            if not namespace_ok or not ns_out:
                 continue
 
             for line in ns_out.splitlines():
@@ -272,11 +336,12 @@ class RemoteCollector:
                         break
 
                 # Lấy MAC từ namespace
-                mac_code, mac_out, _ = self.run_cmd(
+                mac_ok, mac_out = self._run_collection_command(
+                    f"Namespace {ns} MAC",
                     f"ip netns exec {shlex.quote(ns)} cat /sys/class/net/{shlex.quote(iface)}/address",
                     sudo=True,
                 )
-                mac = _normalize_mac(mac_out) if mac_code == 0 and mac_out else ""
+                mac = _normalize_mac(mac_out) if mac_ok and mac_out else ""
 
                 state = "connected" if iface_state == "UP" else "disconnected"
 
@@ -300,10 +365,12 @@ class RemoteCollector:
         Chạy ``bridge fdb show br <bridge>`` để lấy các MAC đã học
         trên bridge.
         """
-        code, out, _ = self.run_cmd(
-            f"bridge fdb show br {shlex.quote(self.bridge)}", sudo=True
+        succeeded, out = self._run_collection_command(
+            "Bridge FDB",
+            f"bridge fdb show br {shlex.quote(self.bridge)}",
+            sudo=True,
         )
-        if code != 0 or not out:
+        if not succeeded or not out:
             return []
 
         results: list[dict] = []
@@ -337,78 +404,79 @@ class RemoteCollector:
     #  Tổng hợp tất cả nguồn                                             #
     # ------------------------------------------------------------------ #
 
-    def collect_all(self) -> list[ClientInfo]:
-        """
-        Chạy tất cả collector, hợp nhất dữ liệu, loại bỏ trùng lặp theo MAC.
-
-        Thứ tự ưu tiên khi merge: namespace > arp > lease > fdb.
-        """
+    def collect_all(self) -> CollectionResult:
+        """Lấy station trực tiếp từ AP rồi làm giàu bằng lease và bảng Linux."""
+        self.errors = []
         now = _now_iso()
 
-        # Thu thập dữ liệu từ tất cả nguồn
+        if not self.ap_interface:
+            return CollectionResult(
+                clients=[],
+                station_scan_ok=False,
+                errors=["AP station list: ap_interface chưa được cấu hình"],
+            )
+
+        station_ok, station_output = self._run_collection_command(
+            "AP station list",
+            f"iw dev {shlex.quote(self.ap_interface)} station dump",
+            sudo=True,
+        )
+        if not station_ok:
+            return CollectionResult([], False, self.errors.copy())
+
+        interface_ok, interface_info = self._run_collection_command(
+            "AP interface info",
+            f"iw dev {shlex.quote(self.ap_interface)} info",
+            sudo=True,
+        )
+        ssid_match = (
+            re.search(r"^\s*ssid\s+(.+?)\s*$", interface_info, re.MULTILINE)
+            if interface_ok
+            else None
+        )
+        ssid = (
+            ssid_match.group(1)
+            if ssid_match
+            else self.ssid_map.get(self.bridge, "")
+        )
+
         leases = self.collect_leases()
         arps = self.collect_arp()
         namespaces = self.collect_namespaces()
         fdbs = self.collect_fdb()
 
-        # Gom tất cả vào dict theo MAC
-        merged: dict[str, dict] = {}
+        merged = {
+            station["mac"]: {
+                **station,
+                "ip": "",
+                "hostname": "",
+                "namespace": "",
+            }
+            for station in _parse_station_dump(station_output)
+        }
 
-        # FDB (ưu tiên thấp nhất)
-        for item in fdbs:
-            mac = item.get("mac", "")
-            if mac:
-                merged.setdefault(mac, {"mac": mac})
-                merged[mac].setdefault("source", "fdb")
+        for items in (leases, arps, namespaces, fdbs):
+            for item in items:
+                data = merged.get(item.get("mac", ""))
+                if not data:
+                    continue
+                for key in ("ip", "hostname", "namespace"):
+                    if item.get(key):
+                        data[key] = item[key]
 
-        # Lease
-        for item in leases:
-            mac = item.get("mac", "")
-            if mac:
-                merged.setdefault(mac, {"mac": mac})
-                merged[mac]["ip"] = item.get("ip", merged[mac].get("ip", ""))
-                merged[mac]["hostname"] = item.get(
-                    "hostname", merged[mac].get("hostname", "")
-                )
-                merged[mac].setdefault("source", "lease")
-
-        # ARP (ưu tiên trạng thái)
-        for item in arps:
-            mac = item.get("mac", "")
-            if mac:
-                merged.setdefault(mac, {"mac": mac})
-                merged[mac]["ip"] = item.get("ip", merged[mac].get("ip", ""))
-                merged[mac]["state"] = item.get("state", "connected")
-                merged[mac]["source"] = "arp"
-
-        # Namespace (ưu tiên cao nhất)
-        for item in namespaces:
-            mac = item.get("mac", "")
-            if mac:
-                merged.setdefault(mac, {"mac": mac})
-                if item.get("ip"):
-                    merged[mac]["ip"] = item["ip"]
-                merged[mac]["namespace"] = item.get("namespace", "")
-                merged[mac]["state"] = item.get("state", "connected")
-                merged[mac]["source"] = "namespace"
-
-        # Chuyển thành list[ClientInfo]
-        clients: list[ClientInfo] = []
-        for mac, data in merged.items():
-            # Ánh xạ SSID từ bridge
-            ssid = self.ssid_map.get(self.bridge, "")
-
-            clients.append(
-                ClientInfo(
-                    mac=mac,
-                    ip=data.get("ip", ""),
-                    hostname=data.get("hostname", ""),
-                    ssid=ssid,
-                    namespace=data.get("namespace", ""),
-                    first_seen=now,
-                    last_seen=now,
-                    state=data.get("state", "connected"),
-                    source=data.get("source", ""),
-                )
+        clients = [
+            ClientInfo(
+                mac=mac,
+                ip=data["ip"],
+                hostname=data["hostname"],
+                ssid=ssid,
+                namespace=data["namespace"],
+                first_seen=now,
+                connected_since=data["connected_since"],
+                last_seen=now,
+                state="connected",
+                source="ap_station",
             )
-        return clients
+            for mac, data in merged.items()
+        ]
+        return CollectionResult(clients, True, self.errors.copy())

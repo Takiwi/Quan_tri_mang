@@ -23,8 +23,10 @@
         <dt class="col-sm-3 col-lg-2">Hostname</dt><dd class="col-sm-9 col-lg-4">{{ client.hostname|default:"—" }}</dd>
         <dt class="col-sm-3 col-lg-2">SSID</dt><dd class="col-sm-9 col-lg-4">{{ client.ssid|default:"—" }}</dd>
         <dt class="col-sm-3 col-lg-2">Namespace</dt><dd class="col-sm-9 col-lg-4">{{ client.namespace|default:"—" }}</dd>
+        <dt class="col-sm-3 col-lg-2">Kết nối AP từ (ước tính)</dt><dd class="col-sm-9 col-lg-4">{{ client.connected_since|default:"—" }}</dd>
         <dt class="col-sm-3 col-lg-2">Phát hiện lần đầu</dt><dd class="col-sm-9 col-lg-4">{{ client.first_seen|default:"—" }}</dd>
         <dt class="col-sm-3 col-lg-2">Cập nhật lần cuối</dt><dd class="col-sm-9 col-lg-4">{{ client.last_seen|default:"—" }}</dd>
+        <dt class="col-sm-3 col-lg-2">Nguồn trạng thái</dt><dd class="col-sm-9 col-lg-4">{{ client.source|default:"—" }}</dd>
       </dl>
     </div>
   </section>

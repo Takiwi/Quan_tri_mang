@@ -29,11 +29,31 @@ class Command(BaseCommand):
     def handle(self, *args, **options) -> None:
         project_root = Path(settings.BASE_DIR).parent
 
+        self.stdout.write(self.style.NOTICE("Step 1/4: Starting PostgreSQL..."))
+        postgres_command = [
+            sys.executable,
+            str(project_root / "scripts" / "start_postgres.py"),
+        ]
+        try:
+            postgres_result = subprocess.run(
+                postgres_command,
+                cwd=project_root,
+                check=False,
+            )
+        except OSError as exc:
+            raise CommandError(f"Could not start PostgreSQL: {exc}") from exc
+        if postgres_result.returncode != 0:
+            raise CommandError(
+                "PostgreSQL could not be started; WifiMon and Django were not started."
+            )
+
         check_command = [sys.executable, "-m", "app.main"]
         if options["sudo"]:
             check_command.append("--sudo")
 
-        self.stdout.write(self.style.NOTICE("Step 1/3: Checking router configuration..."))
+        self.stdout.write(
+            self.style.NOTICE("Step 2/4: Checking router configuration...")
+        )
         try:
             check_result = subprocess.run(check_command, cwd=project_root, check=False)
         except OSError as exc:
@@ -46,7 +66,7 @@ class Command(BaseCommand):
 
         processes: list[subprocess.Popen] = []
         try:
-            self.stdout.write(self.style.NOTICE("Step 2/3: Starting WifiMon..."))
+            self.stdout.write(self.style.NOTICE("Step 3/4: Starting WifiMon..."))
             try:
                 scanner = subprocess.Popen(
                     [sys.executable, "-m", "wifimon"],
@@ -54,7 +74,7 @@ class Command(BaseCommand):
                 )
                 processes.append(scanner)
 
-                self.stdout.write(self.style.NOTICE("Step 3/3: Starting Django..."))
+                self.stdout.write(self.style.NOTICE("Step 4/4: Starting Django..."))
                 manage_py = Path(settings.BASE_DIR) / "manage.py"
                 server = subprocess.Popen(
                     [

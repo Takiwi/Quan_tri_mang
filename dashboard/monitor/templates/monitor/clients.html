@@ -22,7 +22,7 @@
         <select id="client-state" class="form-select" name="state">
           <option value="">Tất cả trạng thái</option>
           <option value="connected" {% if state_filter == "connected" %}selected{% endif %}>Đang kết nối</option>
-          <option value="stale" {% if state_filter == "stale" %}selected{% endif %}>Không ổn định</option>
+          <option value="stale" {% if state_filter == "stale" %}selected{% endif %}>Đang xác minh mất</option>
           <option value="disconnected" {% if state_filter == "disconnected" %}selected{% endif %}>Mất kết nối</option>
         </select>
       </div>
@@ -42,6 +42,7 @@
             <th scope="col">Địa chỉ IP</th>
             <th scope="col">Hostname</th>
             <th scope="col">SSID</th>
+            <th scope="col">Kết nối AP từ</th>
             <th scope="col">Namespace</th>
             <th scope="col">Trạng thái</th>
             <th scope="col">Cập nhật lần cuối</th>
@@ -54,12 +55,13 @@
             <td>{{ client.ip|default:"—" }}</td>
             <td>{{ client.hostname|default:"—" }}</td>
             <td>{{ client.ssid|default:"—" }}</td>
+            <td class="text-nowrap" title="{{ client.connected_since }}">{{ client.connected_since|time_ago }}</td>
             <td>{{ client.namespace|default:"—" }}</td>
             <td>{{ client.state|state_badge }}</td>
             <td class="text-nowrap" title="{{ client.last_seen }}">{{ client.last_seen|time_ago }}</td>
           </tr>
           {% empty %}
-          <tr><td colspan="7" class="text-center text-secondary py-5">Không tìm thấy client phù hợp.</td></tr>
+          <tr><td colspan="8" class="text-center text-secondary py-5">Không tìm thấy client phù hợp.</td></tr>
           {% endfor %}
         </tbody>
       </table>

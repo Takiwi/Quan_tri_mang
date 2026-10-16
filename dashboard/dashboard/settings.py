@@ -5,8 +5,12 @@ Cấu hình Django cho dự án Dashboard giám sát Wi-Fi.
 import os
 from pathlib import Path
 
+import dj_database_url
+from dotenv import load_dotenv
+
 # Đường dẫn gốc của dự án
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR.parent / ".env")
 
 # Khóa bí mật cho môi trường phát triển
 SECRET_KEY = 'django-insecure-wifimon-dashboard-dev-key-2024'
@@ -62,12 +66,20 @@ TEMPLATES = [
 # Cấu hình WSGI
 WSGI_APPLICATION = 'dashboard.wsgi.application'
 
-# Cấu hình cơ sở dữ liệu SQLite - trỏ đến file wifimon.db
+# PostgreSQL URL dùng chung với tiến trình WifiMon.
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("Thiếu DATABASE_URL trong file .env.")
+DATABASES_CONFIG = dj_database_url.parse(DATABASE_URL, conn_max_age=60)
+schema_option = DATABASES_CONFIG.get("OPTIONS", {}).pop("schema", None)
+if schema_option not in (None, "public"):
+    raise RuntimeError(
+        "DATABASE_URL chỉ hỗ trợ schema=public; cấu hình schema khác bằng search_path."
+    )
+if DATABASES_CONFIG.get("HOST") == "localhost":
+    DATABASES_CONFIG["HOST"] = "127.0.0.1"
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR.parent / 'wifimon.db',
-    }
+    "default": DATABASES_CONFIG,
 }
 
 # Xác thực mật khẩu

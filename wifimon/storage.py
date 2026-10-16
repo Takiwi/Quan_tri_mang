@@ -1,5 +1,5 @@
 """
-storage.py - Lưu trữ dữ liệu giám sát Wi-Fi bằng SQLite
+storage.py - Lưu trữ dữ liệu giám sát Wi-Fi bằng PostgreSQL
 
 Quản lý 3 bảng:
   - clients:      thông tin client hiện tại
@@ -9,10 +9,15 @@ Quản lý 3 bảng:
 
 from __future__ import annotations
 
-import json
-import sqlite3
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+import psycopg
+from dotenv import load_dotenv
+from psycopg.rows import dict_row
 
 if TYPE_CHECKING:
     from wifimon.collector import ClientInfo
@@ -23,13 +28,40 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-class Storage:
-    """Quản lý SQLite database cho hệ thống giám sát Wi-Fi."""
+def _psycopg_database_url(database_url: str) -> str:
+    """Normalize URL options and localhost for psycopg/Docker loopback."""
+    parsed = urlsplit(database_url)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    schemas = [value for key, value in query if key == "schema"]
+    if any(schema != "public" for schema in schemas):
+        raise ValueError(
+            "DATABASE_URL schema must be public; configure other schemas with "
+            "a PostgreSQL search_path option."
+        )
+    query = [(key, value) for key, value in query if key != "schema"]
+    hostname = parsed.hostname or ""
+    if hostname == "localhost":
+        userinfo = parsed.netloc.rpartition("@")[0]
+        userinfo = f"{userinfo}@" if userinfo else ""
+        port = f":{parsed.port}" if parsed.port else ""
+        netloc = f"{userinfo}127.0.0.1{port}"
+    else:
+        netloc = parsed.netloc
+    return urlunsplit(parsed._replace(netloc=netloc, query=urlencode(query)))
 
-    def __init__(self, db_path: str = "wifimon.db") -> None:
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
+
+class Storage:
+    """Quản lý PostgreSQL database cho hệ thống giám sát Wi-Fi."""
+
+    def __init__(self, database_url: str | None = None) -> None:
+        load_dotenv(Path(__file__).parent.parent / ".env")
+        self.database_url = database_url or os.environ.get("DATABASE_URL", "")
+        if not self.database_url:
+            raise ValueError("Thiếu DATABASE_URL trong cấu hình.")
+        self.conn = psycopg.connect(
+            _psycopg_database_url(self.database_url),
+            row_factory=dict_row,
+        )
         self.init_db()
 
     # ------------------------------------------------------------------ #
@@ -37,7 +69,7 @@ class Storage:
     # ------------------------------------------------------------------ #
 
     def init_db(self) -> None:
-        """Tạo các bảng nếu chưa tồn tại."""
+        """Tạo các bảng PostgreSQL nếu chưa tồn tại và cập nhật schema."""
         cursor = self.conn.cursor()
 
         cursor.execute(
@@ -48,9 +80,12 @@ class Storage:
                 hostname  TEXT DEFAULT '',
                 ssid      TEXT DEFAULT '',
                 namespace TEXT DEFAULT '',
+                connected_since TEXT DEFAULT '',
                 first_seen TEXT DEFAULT '',
                 last_seen  TEXT DEFAULT '',
-                state     TEXT DEFAULT 'connected'
+                state     TEXT DEFAULT 'connected',
+                source    TEXT DEFAULT '',
+                missed_scans INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -58,7 +93,7 @@ class Storage:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                id         BIGSERIAL PRIMARY KEY,
                 timestamp  TEXT NOT NULL,
                 event_type TEXT NOT NULL,
                 mac        TEXT DEFAULT '',
@@ -71,12 +106,23 @@ class Storage:
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS scan_history (
-                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                id                BIGSERIAL PRIMARY KEY,
                 timestamp         TEXT NOT NULL,
                 total_clients     INTEGER DEFAULT 0,
                 connected_clients INTEGER DEFAULT 0
             )
             """
+        )
+
+        cursor.execute(
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS connected_since TEXT DEFAULT ''"
+        )
+        cursor.execute(
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT DEFAULT ''"
+        )
+        cursor.execute(
+            "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+            "missed_scans INTEGER NOT NULL DEFAULT 0"
         )
 
         self.conn.commit()
@@ -104,15 +150,30 @@ class Storage:
 
         cursor.execute(
             """
-            INSERT INTO clients (mac, ip, hostname, ssid, namespace, first_seen, last_seen, state)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO clients (
+                mac, ip, hostname, ssid, namespace, connected_since,
+                first_seen, last_seen, state, source, missed_scans
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
             ON CONFLICT(mac) DO UPDATE SET
-                ip        = excluded.ip,
-                hostname  = excluded.hostname,
-                ssid      = excluded.ssid,
-                namespace = excluded.namespace,
+                ip = CASE WHEN excluded.ip != '' THEN excluded.ip ELSE clients.ip END,
+                hostname = CASE
+                    WHEN excluded.hostname != '' THEN excluded.hostname
+                    ELSE clients.hostname
+                END,
+                ssid = CASE WHEN excluded.ssid != '' THEN excluded.ssid ELSE clients.ssid END,
+                namespace = CASE
+                    WHEN excluded.namespace != '' THEN excluded.namespace
+                    ELSE clients.namespace
+                END,
+                connected_since = CASE
+                    WHEN excluded.connected_since != '' THEN excluded.connected_since
+                    ELSE clients.connected_since
+                END,
                 last_seen = excluded.last_seen,
-                state     = excluded.state
+                state     = excluded.state,
+                source    = excluded.source,
+                missed_scans = 0
             """,
             (
                 client.mac,
@@ -120,9 +181,11 @@ class Storage:
                 client.hostname,
                 client.ssid,
                 client.namespace,
+                client.connected_since,
                 first_seen,
                 client.last_seen or _now_iso(),
                 client.state,
+                client.source,
             ),
         )
         self.conn.commit()
@@ -136,7 +199,7 @@ class Storage:
     def get_client_by_mac(self, mac: str) -> dict | None:
         """Lấy thông tin một client theo MAC address."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
+        cursor.execute("SELECT * FROM clients WHERE mac = %s", (mac,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
@@ -148,15 +211,25 @@ class Storage:
         )
         return [dict(row) for row in cursor.fetchall()]
 
-    def mark_disconnected(self, mac: str, timestamp: str = "") -> None:
-        """Đánh dấu client đã mất kết nối."""
-        ts = timestamp or _now_iso()
+    def record_missed_scan(self, mac: str, disconnect_after: int) -> bool:
+        """Record one authoritative AP scan miss and return whether it disconnected."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "UPDATE clients SET state = 'disconnected', last_seen = ? WHERE mac = ?",
-            (ts, mac),
+            "SELECT state, missed_scans FROM clients WHERE mac = %s", (mac,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return False
+
+        missed_scans = row["missed_scans"] + 1
+        disconnected = missed_scans >= disconnect_after
+        state = "disconnected" if disconnected else "stale"
+        cursor.execute(
+            "UPDATE clients SET state = %s, missed_scans = %s WHERE mac = %s",
+            (state, missed_scans, mac),
         )
         self.conn.commit()
+        return disconnected and row["state"] != "disconnected"
 
     # ------------------------------------------------------------------ #
     #  CRUD cho events                                                    #
@@ -174,7 +247,7 @@ class Storage:
         cursor.execute(
             """
             INSERT INTO events (timestamp, event_type, mac, message, severity)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (_now_iso(), event_type, mac, message, severity),
         )
@@ -184,7 +257,7 @@ class Storage:
         """Lấy danh sách sự kiện gần nhất."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT * FROM events ORDER BY id DESC LIMIT %s", (limit,)
         )
         return [dict(row) for row in cursor.fetchall()]
 
@@ -192,7 +265,7 @@ class Storage:
         """Lấy danh sách sự kiện của một client."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT * FROM events WHERE mac = ? ORDER BY id DESC LIMIT ?",
+            "SELECT * FROM events WHERE mac = %s ORDER BY id DESC LIMIT %s",
             (mac, limit),
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -207,7 +280,7 @@ class Storage:
         cursor.execute(
             """
             INSERT INTO scan_history (timestamp, total_clients, connected_clients)
-            VALUES (?, ?, ?)
+            VALUES (%s, %s, %s)
             """,
             (_now_iso(), total, connected),
         )
@@ -217,7 +290,7 @@ class Storage:
         """Lấy lịch sử quét gần nhất."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT * FROM scan_history ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT * FROM scan_history ORDER BY id DESC LIMIT %s", (limit,)
         )
         return [dict(row) for row in cursor.fetchall()]
 
@@ -255,6 +328,5 @@ class Storage:
     # ------------------------------------------------------------------ #
 
     def close(self) -> None:
-        """Đóng kết nối SQLite."""
+        """Đóng kết nối PostgreSQL."""
         self.conn.close()
-

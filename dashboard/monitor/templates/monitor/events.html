@@ -21,6 +21,7 @@
           <option value="client_disconnected" {% if event_type == "client_disconnected" %}selected{% endif %}>Mất kết nối</option>
           <option value="client_returned" {% if event_type == "client_returned" %}selected{% endif %}>Client quay lại</option>
           <option value="threshold_exceeded" {% if event_type == "threshold_exceeded" %}selected{% endif %}>Vượt ngưỡng</option>
+          <option value="threshold_recovered" {% if event_type == "threshold_recovered" %}selected{% endif %}>Trở về ngưỡng</option>
         </select>
       </div>
       <div class="col-12 col-md-3">

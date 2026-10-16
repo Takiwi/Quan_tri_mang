@@ -105,7 +105,8 @@ def api_clients(request):
     clients = Client.objects.all().order_by('-last_seen')
     data = list(clients.values(
         'mac', 'ip', 'hostname', 'ssid', 'namespace',
-        'first_seen', 'last_seen', 'state'
+        'connected_since', 'first_seen', 'last_seen', 'state', 'source',
+        'missed_scans'
     ))
     return JsonResponse({'clients': data})
 
@@ -164,4 +165,3 @@ def models_Q_search(query):
         Q(ip__icontains=query) |
         Q(hostname__icontains=query)
     )
-

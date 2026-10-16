@@ -1,11 +1,12 @@
 """
 detector.py - So sánh kết quả quét hiện tại với DB, sinh sự kiện
 
-Phát hiện 4 loại sự kiện:
+Phát hiện các loại sự kiện:
   - client_connected:     client mới kết nối
   - client_disconnected:  client mất kết nối
   - client_returned:      client quay lại sau khi mất kết nối
   - threshold_exceeded:   số client vượt ngưỡng cấu hình
+  - threshold_recovered:  số client trở về ngưỡng cho phép
 """
 
 from __future__ import annotations
@@ -46,10 +47,21 @@ class Detector:
     def __init__(self, storage: "Storage", config: dict) -> None:
         self.storage = storage
         self.threshold = config.get("client_threshold", 5)
+        self.disconnect_missed_scans = config.get("disconnect_missed_scans", 2)
+        if self.disconnect_missed_scans < 1:
+            raise ValueError("disconnect_missed_scans phải lớn hơn hoặc bằng 1.")
 
-    def detect(self, current_clients: list["ClientInfo"]) -> list[Event]:
+    def detect(
+        self,
+        current_clients: list["ClientInfo"],
+        *,
+        authoritative: bool = True,
+    ) -> list[Event]:
         """
         So sánh trạng thái hiện tại với DB. Trả về danh sách sự kiện.
+
+        Bỏ qua snapshot không có xác nhận từ AP để tránh đánh dấu nhầm client
+        disconnected khi lệnh truy vấn AP thất bại.
 
         Quy trình:
           1. Lấy danh sách client đã biết từ DB.
@@ -58,6 +70,9 @@ class Detector:
           4. Kiểm tra ngưỡng.
           5. Cập nhật DB.
         """
+        if not authoritative:
+            return []
+
         events: list[Event] = []
         now = _now_iso()
 
@@ -76,7 +91,7 @@ class Detector:
 
             old = old_clients.get(client.mac)
 
-            if old is None:
+            if old is None and client.state == "connected":
                 # ---- Client mới hoàn toàn ----
                 events.append(
                     Event(
@@ -89,7 +104,11 @@ class Detector:
                         severity="info",
                     )
                 )
-            elif old["state"] == "disconnected" and client.state == "connected":
+            elif (
+                old is not None
+                and old["state"] == "disconnected"
+                and client.state == "connected"
+            ):
                 # ---- Client quay lại ----
                 events.append(
                     Event(
@@ -109,8 +128,11 @@ class Detector:
         # ---- Phát hiện client mất kết nối ----
         for mac, old in old_clients.items():
             if mac not in current_macs and old["state"] != "disconnected":
-                # Client không còn trong lần quét này -> mất kết nối
-                self.storage.mark_disconnected(mac, now)
+                disconnected = self.storage.record_missed_scan(
+                    mac, self.disconnect_missed_scans
+                )
+                if not disconnected:
+                    continue
                 events.append(
                     Event(
                         event_type="client_disconnected",
@@ -124,7 +146,13 @@ class Detector:
                 )
 
         # ---- Kiểm tra ngưỡng ----
-        if connected_count > self.threshold:
+        previous_scans = self.storage.get_scan_history(limit=1)
+        previous_count = (
+            previous_scans[0]["connected_clients"] if previous_scans else None
+        )
+        if connected_count > self.threshold and (
+            previous_count is None or previous_count <= self.threshold
+        ):
             events.append(
                 Event(
                     event_type="threshold_exceeded",
@@ -137,6 +165,25 @@ class Detector:
                     ),
                     timestamp=now,
                     severity="critical",
+                )
+            )
+        elif (
+            previous_count is not None
+            and previous_count > self.threshold
+            and connected_count <= self.threshold
+        ):
+            events.append(
+                Event(
+                    event_type="threshold_recovered",
+                    mac="",
+                    ip="",
+                    hostname="",
+                    message=(
+                        f"Số client kết nối ({connected_count}) đã trở về "
+                        f"ngưỡng cho phép ({self.threshold})"
+                    ),
+                    timestamp=now,
+                    severity="info",
                 )
             )
 
@@ -154,4 +201,3 @@ class Detector:
         self.storage.add_scan_record(total=total, connected=connected_count)
 
         return events
-

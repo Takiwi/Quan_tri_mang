@@ -28,6 +28,7 @@ _EVENT_ICONS = {
     "client_disconnected": "🔴",
     "client_returned": "🔵",
     "threshold_exceeded": "⚠️",
+    "threshold_recovered": "✅",
 }
 
 

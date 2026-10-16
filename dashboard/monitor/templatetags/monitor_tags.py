@@ -13,7 +13,7 @@ def state_badge(state):
     """Trả về badge Bootstrap theo trạng thái client."""
     badges = {
         "connected": ("success", "Kết nối"),
-        "stale": ("warning text-dark", "Không ổn định"),
+        "stale": ("warning text-dark", "Đang xác minh mất"),
         "disconnected": ("danger", "Mất kết nối"),
     }
     style, label = badges.get(state, ("secondary", state))
@@ -40,6 +40,7 @@ def event_type_label(event_type):
         "client_disconnected": "🔴 Mất kết nối",
         "client_returned": "🔵 Quay lại",
         "threshold_exceeded": "⚠️ Vượt ngưỡng",
+        "threshold_recovered": "✅ Trở về ngưỡng",
     }
     return labels.get(event_type, event_type)
 

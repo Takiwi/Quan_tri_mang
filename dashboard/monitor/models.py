@@ -14,9 +14,12 @@ class Client(models.Model):
     hostname = models.CharField(max_length=255, blank=True, default="")
     ssid = models.CharField(max_length=255, blank=True, default="")
     namespace = models.CharField(max_length=255, blank=True, default="")
+    connected_since = models.CharField(max_length=30, blank=True, default="")
     first_seen = models.CharField(max_length=30, blank=True, default="")
     last_seen = models.CharField(max_length=30, blank=True, default="")
     state = models.CharField(max_length=20, default="connected")
+    source = models.CharField(max_length=32, blank=True, default="")
+    missed_scans = models.IntegerField(default=0)
 
     class Meta:
         managed = False

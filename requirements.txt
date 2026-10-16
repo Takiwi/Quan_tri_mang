@@ -3,3 +3,5 @@ python-dotenv
 PyYAML
 rich
 Django
+dj-database-url
+psycopg[binary]

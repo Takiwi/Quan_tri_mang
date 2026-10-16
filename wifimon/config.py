@@ -42,8 +42,10 @@ def load_config(config_path: str | None = None, env_path: str | None = None) -> 
     # Đảm bảo các giá trị mặc định
     config.setdefault("scan_interval", 10)
     config.setdefault("client_threshold", 5)
+    config.setdefault("disconnect_missed_scans", 2)
     config.setdefault("lease_file", "/var/lib/misc/dnsmasq.leases")
     config.setdefault("bridge", "br-lab")
+    config.setdefault("ap_interface", "wlan0")
     config.setdefault("client_prefix", "client")
     config.setdefault("ssid_map", {})
 
